@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>K8s Inventory Hub</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f7f6; color: #333; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1, h2 { color: #2c3e50; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; box-sizing: border-box; }
+        button { color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold; margin-right: 2px;}
+        .btn-submit { background-color: #27ae60; padding: 10px 15px; font-size: 14px; }
+        .btn-hide { background-color: #7f8c8d; }
+        .btn-unhide { background-color: #2980b9; }
+        .btn-remove { background-color: #e67e22; }
+        .btn-delete { background-color: #c0392b; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #34495e; color: white; }
+        .flash { padding: 10px; margin-bottom: 15px; border-radius: 4px; background-color: #d4edda; color: #155724; font-weight: bold;}
+        #detailsDisplay { display: none; margin-top: 20px; padding: 15px; background: #ecf0f1; border-left: 5px solid #2980b9; border-radius: 4px; }
+        .actions-cell { display: flex; gap: 4px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Inventory Management Hub (K8s Running)</h1>
+
+    <!-- Flash Feedback Alerts -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash" style="background-color: {% if category=='danger' %}#f8d7da{% elif category=='warning' %}#fff3cd{% else %}#d4edda{% endif %}; color: {% if category=='danger' %}#721c24{% elif category=='warning' %}#856404{% else %}#155724{% endif %};">
+              {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- 1. Dropdown Async Fetcher Section -->
+    <h2>Quick Data Inspection</h2>
+    <div class="form-group">
+        <label for="itemFetcher">Select Item to View Live Details:</label>
+        <select id="itemFetcher" onchange="fetchItemDetails(this.value)">
+            <option value="">-- Choose an Item --</option>
+            {% for item in dropdown_items %}
+                <option value="{{ item.id }}">{{ item.name }} (SKU: {{ item.sku }})</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div id="detailsDisplay">
+        <h3>Live Record Details</h3>
+        <p><strong>Database ID:</strong> <span id="dtId"></span> | <strong>SKU:</strong> <span id="dtSku"></span></p>
+        <p><strong>Item Title:</strong> <span id="dtName"></span></p>
+        <p><strong>Category:</strong> <span id="dtCat"></span></p>
+        <p><strong>Stock Level:</strong> <span id="dtQty"></span> units</p>
+        <p><strong>Unit Cost:</strong> ₹<span id="dtPrice"></span></p>
+        
+        <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 10px;">
+            <form id="inspectRemoveForm" action="" method="POST" style="display:inline;">
+                <input type="hidden" name="deduct_quantity" value="1">
+                <button type="submit" class="btn-remove">Deduct 1 Unit</button>
+            </form>
+            <form id="inspectDeleteForm" action="" method="POST" style="display:inline;" onsubmit="return confirm('Purge this record completely?');">
+                <button type="submit" class="btn-delete">Hard Purge Record</button>
+            </form>
+        </div>
+    </div>
+
+    <hr style="margin: 30px 0; border: 0; border-top: 1px solid #eee;">
+
+    <!-- 2. Creation / Mutation Form -->
+    <h2>Add / Adjust Stock Item</h2>
+    <form action="/add" method="POST">
+        <div class="form-group"><label>SKU Code:</label><input type="text" name="sku" required placeholder="e.g. ELEC-109"></div>
+        <div class="form-group"><label>Item Name:</label><input type="text" name="name" required placeholder="e.g. Wireless Mouse"></div>
+        <div class="form-group"><label>Category:</label><input type="text" name="category" placeholder="e.g. Electronics"></div>
+        <div class="form-group"><label>Quantity to Add:</label><input type="number" name="quantity" value="1" min="1" required></div>
+        <div class="form-group"><label>Unit Price (₹):</label><input type="number" step="0.01" name="price" required placeholder="499.00"></div>
+        <button type="submit" class="btn-submit">Commit to Registry</button>
+    </form>
+
+    <!-- 3. Current Live View Table -->
+    <h2>Active Registry Inventory</h2>
+    <table>
+        <thead>
+            <tr><th>SKU</th><th>Name</th><th>Category</th><th>Qty</th><th>Price</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ item.sku }}</td>
+                <td>{{ item.name }}</td>
+                <td>{{ item.category or 'N/A' }}</td>
+                <td><strong>{{ item.quantity }}</strong></td>
+                <td>₹{{ "%.2f"|format(item.price) }}</td>
+                <td>
+                    <div class="actions-cell">
+                        <form action="/remove/{{ item.id }}" method="POST" style="display:inline;">
+                            <input type="hidden" name="deduct_quantity" value="1">
+                            <button type="submit" class="btn-remove">Remove 1</button>
+                        </form>
+                        <form action="/hide/{{ item.id }}" method="POST" style="display:inline;">
+                            <button type="submit" class="btn-hide">Hide</button>
+                        </form>
+                        <form action="/delete/{{ item.id }}" method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to permanently delete this item?');">
+                            <button type="submit" class="btn-delete">Delete</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+function fetchItemDetails(itemId) {
+    const box = document.getElementById('detailsDisplay');
+    if (!itemId) { box.style.display = 'none'; return; }
+    fetch(`/item/${itemId}`)
+        .then(res => { if (!res.ok) throw new Error(); return res.json(); })
+        .then(data => {
+            document.getElementById('dtId').innerText = data.id;
+            document.getElementById('dtSku').innerText = data.sku;
+            document.getElementById('dtName').innerText = data.name;
+            document.getElementById('dtCat').innerText = data.category || 'Uncategorised';
+            document.getElementById('dtQty').innerText = data.quantity;
+            document.getElementById('dtPrice').innerText = data.price.toFixed(2);
+            
+            // Map endpoint action links inside the Quick Data Inspection frame dynamic hooks
+            document.getElementById('inspectRemoveForm').action = `/remove/${data.id}`;
+            document.getElementById('inspectDeleteForm').action = `/delete/${data.id}`;
+            
+            box.style.display = 'block';
+        })
+        .catch(() => alert('Could not fetch database records.'));
+
+}
+</script>
+</body>
+</html>
