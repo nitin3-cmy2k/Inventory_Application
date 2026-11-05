@@ -16,15 +16,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy only the requirements file first to take advantage of Docker layer caching
 COPY requirements.txt .
 
-# Install Python application dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip and install Python dependencies with an extended network timeout
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --default-timeout=100 -r requirements.txt
 
-# Copy the rest of the application code into the container
-COPY . .
+# Copy application source code and views
+COPY app/app.py .
+COPY app/templates ./templates
 
-# Expose the network port Flask runs on
 EXPOSE 5000
 
-# Command to launch the application
-CMD ["python", "app.py"]
-
+CMD ["python", "/app/app.py"]
